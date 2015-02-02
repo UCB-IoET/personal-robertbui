@@ -1,3 +1,16 @@
+--[[ 
+Class: CS 194/294 IoET
+Authors: Robert Bui, Tom McCormick, Kavan Sikand
+Title: LED Pong 
+Description: Two players use buttons K1 and K3 (K2
+starts the game) to "hit a ball" back
+and forth from LEDs D1-D4. Each
+time a player fails to hit the button when
+the ball reaches their LED (K1 = D1, K3 = D4), the
+buzzer makes a sound and the score is displayed.
+The game starts at 0 points. Player K1 wants to get
+to 4 pts, and Player K3 wants to get to -4 pts.]]--
+
 require("cord")
 require("storm")
 shield = require("starter")
@@ -5,17 +18,24 @@ shield = require("starter")
 LEDLocs = {[3] = "red2", [2] = "red", [1] = "green", [0] = "blue"}
 
 Pong = {}
-
-ballLoc=2
-ballDir=1
+flag = 0 
+ballLoc = 2
+startDir = 1
+ballDir = 1
 score = 0 
+winner = 'K3'
 btnClicks = 0
 duration=1000
 Pong.gameHandle=nil
 Pong.btn1Listener=nil
 Pong.btn3Listener=nil
 
-updateButtonPresses=function()
+
+---  updateButtonPresses --- 
+--[[counts the number of times
+  game buttons are pressed and 
+  increases speed of the game]] --- 
+updateButtonPresses=function()  
         btnClicks = btnClicks + 1
         --print(btnClicks)
         if(btnClicks % 3 == 0) then
@@ -26,6 +46,10 @@ updateButtonPresses=function()
         --print(duration)
 end
 
+--- pressedButton ---
+--[[changes direction
+of the ball when game
+buttons are pressed ]] -- 
 pressedButton = function(LEDLoc)
 	if(LEDLoc == 0 and ballLoc == 0 and ballDir == -1) then
 		ballDir = 1
@@ -36,22 +60,44 @@ pressedButton = function(LEDLoc)
 	end 
 end
 
+---blinker---
+--[[Used to blink
+LED of game winner]]-- 
+function blinker(color)
+   local state = 0
+   return function ()
+      if state  == 1 then
+        -- print ("blink on", state)
+      	 shield.LED.on(color)
+	else
+        -- print ("blink off", state)
+      	 shield.LED.off(color)
+	 end
+      state=1-state
+    end
+end
+
+
+---updateGame--- 
+--[[ used to update the 
+status of game when player 
+fails to press button]]--
 updateGame = function()
 	shield.LED.off(LEDLocs[ballLoc]);
 	ballLoc = ballLoc + ballDir
 	if(ballLoc < 0) then
 		score = score - 1
+		winner = 'K3'
 		updateScore()
 		endGame()
-		print(score) 
 		--print('setting listener')
 		shield.Button.when(2, storm.io.RISING, startGame)
 		return
 	elseif (ballLoc > 3) then 
 		score = score + 1
+		winner = 'K1'
 		updateScore()
 		endGame()
-		print(score)
 		--print('setting listener')
 		shield.Button.when(2, storm.io.RISING, startGame)
 		return
@@ -59,13 +105,24 @@ updateGame = function()
 	shield.LED.on(LEDLocs[ballLoc]);
 end
 
+---updateScore---
+--[[Displays the score
+of the game using the LEDs
+when each round ends]]--
 updateScore = function()
-	if (score > 4) then
-		score = 4
-	elseif (score < -4) then
-		score = -4
-	end
-	if (score == 0) then
+	if (score == 4) then
+		for i = 1, score-1, 1 do
+			shield.LED.on(LEDLocs[i])
+		end 
+		blink =	storm.os.invokePeriodically(500*storm.os.MILLISECOND, blinker(LEDLocs[0]))
+		flag = 1
+	elseif (score == -4) then
+		for i = -2, score, -1 do
+			shield.LED.on(LEDLocs[i+4])
+		end
+		blink = storm.os.invokePeriodically(500*storm.os.MILLISECOND, blinker(LEDLocs[3])) 
+		flag = 1
+	elseif (score == 0) then
 		shield.LED.on(LEDLocs[1])
 		shield.LED.on(LEDLocs[2])
 	elseif (score > 0) then
@@ -79,13 +136,26 @@ updateScore = function()
 	end
 end 
 
-startGame = function() 
-	ballLoc=2 --initial led is D2 
-	ballDir=-1 -- "ball" initially moves to direction of D1 
+---startGame---
+--[[begins the game. flag is used
+to stop led blinking after 
+invokePeriodically is used]]---
+startGame = function() 	
 	duration=1000
-	shield.LED.start() --sets LED pins as outputs. 
+	startDir= -1 *startDir 
+	ballDir = startDir 
+	if (flag == 1) then 
+	storm.os.cancel(blink)
+	end 
+	flag = 0 
+	if (ballDir == -1) then 
+		ballLoc = 2
+	else 
+		ballLoc = 1
+	end 
+	shield.LED.start() 
 	for i = 0, 3, 1 do 
-		shield.LED.off(LEDLocs[i]); 
+		shield.LED.off(LEDLocs[i]) 
 	end
 	print('starting game')
 	Pong.btn3Listener = shield.Button.whenever(3,storm.io.FALLING, function() pressedButton(3) end);
@@ -93,10 +163,19 @@ startGame = function()
 	Pong.gameHandle = storm.os.invokePeriodically(duration*storm.os.MILLISECOND, updateGame)
 end
 
+---endGame---
+--[[Ends the round and displays 
+to console the results of round]]--
 endGame = function()
         if(Pong.gameHandle ~= nil) then
-		print('ending game\n');
-        	shield.Buzz.go(5)
+		print('ending game')
+		print('Score:', score)
+		print('Round Winner:',winner,'\n') 
+        	if (score == 4 or score == -4) then
+			print ('Game Winner:',winner,'\n')
+			score = 0;
+		end 
+		shield.Buzz.go(5)
         	storm.os.invokeLater(500*storm.os.MILLISECOND,shield.Buzz.stop)
 		storm.os.cancel(Pong.gameHandle)
         	Pong.gameHandle = nil
@@ -115,7 +194,8 @@ endGame = function()
 		--print("cancelled listener 3") 
 	end
 end
---Game starts when button 2 is pressed. 
+
+--Game starts when button 2 is pressed-- 
 shield.Button.start();
 shield.Button.when(2, storm.io.RISING, startGame)
 
